@@ -34,6 +34,42 @@ export async function getAllRecipes(): Promise<Recipe[]> {
   return recipes.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
+export async function initializeRecipes(loadDefaultRecipes: () => Promise<readonly Recipe[]>): Promise<Recipe[]> {
+  const storedRecipes = await getAllRecipes();
+  if (storedRecipes.length > 0) {
+    return storedRecipes;
+  }
+
+  const defaultRecipes = await loadDefaultRecipes();
+  const db = await initDB();
+
+  await new Promise<void>((resolve, reject) => {
+    // Keep the empty check and inserts atomic, including across tabs and StrictMode effects.
+    const transaction = db.transaction(RECIPE_STORE, "readwrite");
+    const store = transaction.objectStore(RECIPE_STORE);
+    const countRequest = store.count();
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error ?? new Error("Recipe initialization aborted"));
+
+    countRequest.onsuccess = () => {
+      if (countRequest.result !== 0) {
+        return;
+      }
+
+      try {
+        defaultRecipes.forEach((recipe) => store.add(recipe));
+      } catch (error) {
+        transaction.abort();
+        reject(error);
+      }
+    };
+  });
+
+  return await getAllRecipes();
+}
+
 export async function getRecipeById(id: string): Promise<Recipe | undefined> {
   return await runStoreRequest<Recipe | undefined>("readonly", (store) => store.get(id));
 }

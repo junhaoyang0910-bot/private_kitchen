@@ -1,10 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { mockRecipes } from "../data/mockRecipes";
 import {
   createRecipe as createRecipeInDB,
   deleteRecipe as deleteRecipeInDB,
-  getAllRecipes,
   importRecipes,
+  initializeRecipes,
   type ImportMode,
   updateRecipe as updateRecipeInDB,
 } from "../lib/db";
@@ -32,7 +31,6 @@ type RecipeContextValue = {
   importRecipesData: (nextRecipes: Recipe[], mode: ImportMode) => Promise<void>;
 };
 
-const DEMO_SEEDED_KEY = "personal-recipe-demo-seeded-v1";
 const RecipeContext = createContext<RecipeContextValue | undefined>(undefined);
 
 export function RecipeProvider({ children }: { children: ReactNode }) {
@@ -45,13 +43,10 @@ export function RecipeProvider({ children }: { children: ReactNode }) {
 
     async function loadRecipes() {
       try {
-        const storedRecipes = await getAllRecipes();
-        const shouldSeedDemo = storedRecipes.length === 0 && !hasSeededDemo();
-        const nextRecipes = shouldSeedDemo ? await importRecipes(mockRecipes, "merge") : storedRecipes;
-
-        if (shouldSeedDemo) {
-          markDemoSeeded();
-        }
+        const nextRecipes = await initializeRecipes(async () => {
+          const { default: defaultRecipes } = await import("../data/defaultRecipes.json");
+          return defaultRecipes;
+        });
 
         if (isMounted) {
           setRecipes(nextRecipes);
@@ -135,7 +130,6 @@ export function RecipeProvider({ children }: { children: ReactNode }) {
         const importedRecipes = await importRecipes(nextRecipes, mode);
         setRecipes(importedRecipes);
         setStorageError("");
-        markDemoSeeded();
       } catch (error) {
         console.error(error);
         setStorageError("导入备份失败，请确认文件格式正确。");
@@ -165,20 +159,4 @@ export function useRecipes() {
     throw new Error("useRecipes must be used inside RecipeProvider");
   }
   return context;
-}
-
-function hasSeededDemo() {
-  try {
-    return localStorage.getItem(DEMO_SEEDED_KEY) === "true";
-  } catch {
-    return true;
-  }
-}
-
-function markDemoSeeded() {
-  try {
-    localStorage.setItem(DEMO_SEEDED_KEY, "true");
-  } catch {
-    return;
-  }
 }
